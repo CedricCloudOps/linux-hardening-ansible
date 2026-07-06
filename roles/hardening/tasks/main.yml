@@ -1,0 +1,125 @@
+---
+# =====================================================================
+# Linux hardening role - tasks
+# Target: Debian / Ubuntu (see README for RHEL/CentOS adaptation notes)
+# =====================================================================
+
+# 1) Keep the system up to date -------------------------------------------------
+- name: Update apt cache and apply available upgrades
+  ansible.builtin.apt:
+    update_cache: true
+    upgrade: dist
+    cache_valid_time: 3600
+  when: ansible_os_family == "Debian"
+
+# 2) Install the security packages we rely on ----------------------------------
+- name: Install hardening packages
+  ansible.builtin.package:
+    name:
+      - ufw
+      - fail2ban
+      - unattended-upgrades
+    state: present
+  when: ansible_os_family == "Debian"
+
+# 3) Create a non-root admin user with key-based SSH access --------------------
+- name: Create the admin user
+  ansible.builtin.user:
+    name: "{{ hardening_admin_user }}"
+    groups: sudo
+    shell: /bin/bash
+    create_home: true
+    state: present
+
+- name: Deploy the admin SSH public key
+  ansible.posix.authorized_key:
+    user: "{{ hardening_admin_user }}"
+    key: "{{ hardening_admin_ssh_key }}"
+    state: present
+
+# 4) Harden the SSH daemon ------------------------------------------------------
+#    'validate' makes sure we never write a broken sshd_config.
+- name: Harden sshd_config
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: present
+    validate: "sshd -t -f %s"
+  loop:
+    - { regexp: '^#?PermitRootLogin',        line: 'PermitRootLogin {{ hardening_permit_root_login }}' }
+    - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication {{ hardening_password_authentication }}' }
+    - { regexp: '^#?PubkeyAuthentication',   line: 'PubkeyAuthentication yes' }
+    - { regexp: '^#?Port',                   line: 'Port {{ hardening_ssh_port }}' }
+    - { regexp: '^#?X11Forwarding',          line: 'X11Forwarding no' }
+    - { regexp: '^#?MaxAuthTries',           line: 'MaxAuthTries 3' }
+  notify: restart ssh
+
+# 5) Host firewall (UFW): deny all inbound, allow only what we need ------------
+- name: Set UFW default policies
+  community.general.ufw:
+    direction: "{{ item.direction }}"
+    policy: "{{ item.policy }}"
+  loop:
+    - { direction: incoming, policy: deny }
+    - { direction: outgoing, policy: allow }
+
+- name: Allow the required inbound TCP ports
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop: "{{ hardening_allowed_tcp_ports }}"
+
+- name: Enable UFW
+  community.general.ufw:
+    state: enabled
+
+# 6) fail2ban: ban brute-force SSH attempts ------------------------------------
+- name: Configure the fail2ban SSH jail
+  ansible.builtin.copy:
+    dest: /etc/fail2ban/jail.local
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [sshd]
+      enabled  = true
+      port     = {{ hardening_ssh_port }}
+      maxretry = {{ hardening_fail2ban_maxretry }}
+      bantime  = {{ hardening_fail2ban_bantime }}
+  notify: restart fail2ban
+
+- name: Ensure fail2ban is enabled and running
+  ansible.builtin.service:
+    name: fail2ban
+    enabled: true
+    state: started
+
+# 7) Automatic security updates ------------------------------------------------
+- name: Enable unattended security upgrades
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    mode: "0644"
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+  when:
+    - ansible_os_family == "Debian"
+    - hardening_auto_updates | bool
+
+# 8) Basic kernel / network sysctl hardening -----------------------------------
+- name: Apply network sysctl hardening
+  ansible.posix.sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    sysctl_set: true
+    state: present
+    reload: true
+  loop:
+    - { name: net.ipv4.conf.all.rp_filter,            value: "1" }
+    - { name: net.ipv4.conf.all.accept_source_route,  value: "0" }
+    - { name: net.ipv4.conf.all.accept_redirects,     value: "0" }
+    - { name: net.ipv4.conf.all.send_redirects,       value: "0" }
+    - { name: net.ipv4.icmp_echo_ignore_broadcasts,   value: "1" }
+    - { name: net.ipv4.tcp_syncookies,                value: "1" }

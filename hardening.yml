@@ -1,0 +1,8 @@
+---
+# Apply the hardening role to all hosts in the [servers] group.
+# Usage:  ansible-playbook hardening.yml
+- name: Harden Linux servers
+  hosts: servers
+  become: true
+  roles:
+    - hardening

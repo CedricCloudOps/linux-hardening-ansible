@@ -1,0 +1,29 @@
+# --- Ansible ---
+*.retry
+
+# --- Secrets / Vault (never commit these) ---
+*.vault
+.vault_pass
+vault_pass*.txt
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+
+# --- Locally installed collections / roles ---
+collections/
+.ansible/
+
+# --- Python ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# --- Editors / OS ---
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db

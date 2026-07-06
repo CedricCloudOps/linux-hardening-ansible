@@ -1,0 +1,30 @@
+---
+# =====================================================================
+# Default variables for the "hardening" role.
+# Override them in your inventory, group_vars or host_vars.
+# =====================================================================
+
+# --- Admin account (key-based SSH access) ---------------------------
+hardening_admin_user: "cedric"
+# Paste YOUR SSH PUBLIC key here (e.g. content of ~/.ssh/id_ed25519.pub).
+# WARNING: set this correctly BEFORE disabling password auth, or you
+# risk locking yourself out.
+hardening_admin_ssh_key: "ssh-ed25519 AAAA... replace_with_your_public_key"
+
+# --- SSH ------------------------------------------------------------
+hardening_ssh_port: 22
+hardening_permit_root_login: "no"
+hardening_password_authentication: "no"
+
+# --- Firewall (UFW): inbound TCP ports to allow ---------------------
+hardening_allowed_tcp_ports:
+  - "{{ hardening_ssh_port }}"
+  - 80
+  - 443
+
+# --- fail2ban -------------------------------------------------------
+hardening_fail2ban_maxretry: 5
+hardening_fail2ban_bantime: 3600   # seconds (1 hour)
+
+# --- Automatic security updates -------------------------------------
+hardening_auto_updates: true
